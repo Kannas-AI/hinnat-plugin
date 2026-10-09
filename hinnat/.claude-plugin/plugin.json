@@ -1,7 +1,7 @@
 {
   "name": "hinnat",
   "displayName": "Hinnat — sähkötukkujen hintavertailu",
-  "version": "2.1.10",
+  "version": "2.1.11",
   "description": "Halvin hinta Onniselta, Soneparilta ja Ahlsellilta suomeksi kysyen, tarjous Exceliin. Laskee koneellasi, hinnastot ja säännöt organisaatiosi yhteisellä palvelimella.",
   "author": {
     "name": "Kannas",

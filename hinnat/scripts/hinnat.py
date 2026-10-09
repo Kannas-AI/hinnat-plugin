@@ -261,6 +261,9 @@ def cmd_bom(_a, rest):
         shutil.copyfile(a.bom, bom_copy)
     result["tiedostot"] = _file_list(result)
     print(json.dumps(result, ensure_ascii=False, indent=1))
+    if result.get("saastorivi"):
+        print(f"\nSÄÄSTÖ — vastaukseen yhteissumman alle lihavoituna, sellaisenaan:\n"
+              f"{result['saastorivi']}")
     # The files go to the user as attachments, every one of them (03.10.2026,
     # the buyers' decision): the Excel, and the Sonepar CSV whenever Sonepar
     # has lines — that one goes into their shop. A link opens the file only
