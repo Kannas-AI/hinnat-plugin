@@ -63,12 +63,78 @@ def load(path=None):
     return _cache[path][1]
 
 
+CODE_RE = re.compile(r"^(?=.*\d)[0-9A-Za-z]{5,14}$")
+NUMBER_RE = re.compile(r"^\d+(?:[.,]\d+)?$")
+
+
+def _is_code(target):
+    """A target that names exact products (sähkönumero, EAN, supplier code)."""
+    return all(CODE_RE.match(p.strip()) for p in target.split("|") if p.strip())
+
+
+def _loose(q, key):
+    """Match the key's words anywhere in the request, in any order: "vipuwago
+    3" for "3 vipuwago", "6 mmj PK" for "{n} mmj". -> (n, leftover words in
+    request order) or None. {n} takes a plain number not used by a word."""
+    words = q.split()
+    used = [False] * len(words)
+    n = None
+    for tok in key.split():
+        if tok == "{n}":
+            continue
+        for i, w in enumerate(words):
+            if not used[i] and w == tok:
+                used[i] = True
+                break
+        else:
+            return None
+    if "{n}" in key.split():
+        for i, w in enumerate(words):
+            if not used[i] and NUMBER_RE.match(w):
+                used[i], n = True, w
+                break
+        else:
+            return None
+    elif "{n}" in key:                  # "{n}mm lerppaputki": glued, whole line only
+        return None
+    return n, [w for i, w in enumerate(words) if not used[i]]
+
+
 def translate(request, entries):
-    """-> (target, key) for the first entry matching the WHOLE request, else None."""
+    """-> (target, key) for the glossary entry the request means, else None.
+
+    1. the whole request is the word ("6 mmj")
+    2. the words in another order, nothing else ("vipuwago 3")
+    3. the word plus more ("6 mmj PK"): the rest is kept and searched with
+       the target -- not for a target that names exact products, where
+       "kuppi kansi" must not become the box itself.
+    Until 12.10.2026 only 1 existed: "6 mmj PK" fell through to free text
+    and priced MMJ 3x1,5, "vipuwago 3" a plastic door."""
     q = _norm(request)
     for pat, target, key in entries:
         m = pat.fullmatch(q)
         if m:
             n = (m.groupdict().get("n") or "").replace(",", ".")
             return target.replace("{n}", n), key
-    return None
+    best = None
+    for _pat, target, key in entries:
+        got = _loose(q, key)
+        if got is None:
+            continue
+        n, rest = got
+        if rest and _is_code(target):
+            continue
+        # the most specific word wins: "iso musta nippari" over "nippari"
+        score = (not rest, len(key.split()))
+        if best is None or score > best[0]:
+            best = (score, target, key, n, rest)
+    if best is None:
+        return None
+    _score, target, key, n, rest = best
+    target = target.replace("{n}", (n or "").replace(",", "."))
+    if rest:
+        # a size the buyer said beats the glossary's default size
+        if "{n}" not in key and any(NUMBER_RE.match(w) for w in rest):
+            target = " ".join(w for w in target.split() if not NUMBER_RE.match(w))
+        target = " | ".join(f"{p.strip()} {' '.join(rest)}" for p in target.split("|"))
+    return target, key

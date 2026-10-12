@@ -134,7 +134,7 @@ def _slug(s):
 def _opts(a):
     return {"allow_hf": a.allow_hf or None, "require_stock": a.require_stock,
             "exclude_mfg": a.exclude_mfg, "max_split": getattr(a, "max_split", None),
-            "kohde": getattr(a, "kohde", None)}
+            "kohde": getattr(a, "kohde", None), "prefer": getattr(a, "prefer", None)}
 
 
 def _flags(ap):
@@ -199,11 +199,23 @@ def _onninen_fetch(py, ids):
             pass
 
 
+QUOTE_RE = re.compile(r"_tarjous(_\d+)?\.xlsx$")
+
+
+def _numbered(name, n):
+    """name, or name with _<n> before its extension for n > 1."""
+    if n <= 1:
+        return name
+    stem, ext = os.path.splitext(name)
+    return f"{stem}_{n}{ext}"
+
+
 def cmd_bom(_a, rest):
     ap = argparse.ArgumentParser(prog="hinnat bom")
     ap.add_argument("bom")
     ap.add_argument("--kohde")
     ap.add_argument("--max-split", type=int)
+    ap.add_argument("--prefer", choices=["onninen", "sonepar", "ahlsell"])
     ap.add_argument("--no-check-stock", action="store_true")
     # accepted and ignored: quotes stay on this machine since 07.10.2026
     ap.add_argument("--no-share", action="store_true")
@@ -244,9 +256,16 @@ def cmd_bom(_a, rest):
         result.setdefault("live_check", []).append(f"onninen: EI TARKISTETTU — {note}")
     folder = _quotes_dir()
     os.makedirs(folder, exist_ok=True)
+    # Never write over an earlier quote: the server names files by the
+    # second, older servers by the minute (two quotes overwrote, 12.10.2026).
+    # One suffix for the whole set keeps the Excel and its order files paired.
+    names = {name: safe_name(name) for name in files}
+    n = 1
+    while any(os.path.exists(os.path.join(folder, _numbered(f, n))) for f in names.values()):
+        n += 1
     saved = {}
     for name, b64 in files.items():
-        path = os.path.join(folder, safe_name(name))
+        path = os.path.join(folder, _numbered(names[name], n))
         with open(path, "wb") as fh:
             fh.write(base64.b64decode(b64))
         saved[name] = path
@@ -255,7 +274,7 @@ def cmd_bom(_a, rest):
     result["excel"] = saved[result["excel"]]
     for f in result.get("order_files") or []:
         f["path"] = saved.get(f["path"], f["path"])
-    base = os.path.basename(result["excel"]).replace("_tarjous.xlsx", "")
+    base = QUOTE_RE.sub(r"\1", os.path.basename(result["excel"]))
     bom_copy = os.path.join(folder, base + "_bom.csv")
     if os.path.abspath(a.bom) != os.path.abspath(bom_copy):
         shutil.copyfile(a.bom, bom_copy)
@@ -432,7 +451,7 @@ def cmd_tarjoukset(_a, _rest):
     server keeps no quote history since 07.10.2026 (Pasi: a list is ordered
     within minutes and the real history is the suppliers' invoices)."""
     folder = _quotes_dir()
-    names = sorted((f for f in os.listdir(folder) if f.endswith("_tarjous.xlsx")),
+    names = sorted((f for f in os.listdir(folder) if QUOTE_RE.search(f)),
                    reverse=True) if os.path.isdir(folder) else []
     if not names:
         print(f"ei tarjouksia kansiossa {folder}")
